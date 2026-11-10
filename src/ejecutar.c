@@ -43,6 +43,9 @@ static int es(const Instruccion *in, const char *mnemonico)
 
 Resultado ejecutar(CPU *cpu, const Instruccion *in)
 {
+    uint32_t valor, direccion;
+    uint8_t byte;
+
     /* ---------------- add rd, rs, rt ---------------- */
     if (es(in, "add")) {
         uint32_t r = sumar_con_banderas(cpu, cpu->reg[in->rs], cpu->reg[in->rt]);
@@ -62,41 +65,117 @@ Resultado ejecutar(CPU *cpu, const Instruccion *in)
         return OK;
     }
 
-    /*
-     * TODO: para cada instrucción nueva
-     *   1. agregue su línea en isa.txt (formato, opcode, funct, operandos)
-     *   2. implemente aquí lo que hace
-     *
-     * Orden sugerido (cada etapa tiene programas de prueba en programas/):
-     *
-     *   Etapa 1 - Aritméticas y lógicas
-     *     01_aritmetica   sub
-     *     02_logica       lui, ori, and, andi, nor, sll, srl, sra
-     *     03_xor          or, xor, xori
-     *     04_sin_signo    addu, subu, addiu
-     *     05_excepcion    (add/addi deben detectar el desbordamiento)
-     *   Etapa 2 - Memoria
-     *     06_memoria      lw, sw
-     *     07_bytes        lb, lbu, sb
-     *   Etapa 3 - Control de flujo
-     *     08_if           bne, j
-     *     09_ciclo        slt
-     *     10_comparaciones sltu, slti, beq
-     *     11_datos, 12_texto            (integran memoria y ciclos)
-     *     13_funcion      jal, jr
-     *     14_pila         (push/pop de $ra con sw/lw y $sp)
-     *     15_pseudo       move, li, la, nop, clear, b, not: solo líneas en isa.txt
-     *   Etapa 4 - E/S mapeada en memoria (sin instrucciones nuevas)
-     *     16_pantalla, 17_botones, 18_pantalla_rgb
-     *   Etapa 5 - Extensiones del ISA
-     *     19_direcciones  formas de 2 direcciones y add de 1 dirección (adda)
-     *     20_acumulador   mtacc, mfacc, suba, addia
-     *     21_banderas     cmp, jz, jn, jc, jv
-     *     22_mult_div     mult, multu, div, divu, mfhi, mflo, mul (+ blt, ble: solo isa.txt)
-     *     23_consola      syscall: llame a llamar_sistema(cpu) (ver sistema.h)
-     *
-     * Pruebe con:  make test
-     */
+    if (es(in, "sub") || es(in, "subu")) {
+        uint32_t r = restar_con_banderas(cpu, cpu->reg[in->rs], cpu->reg[in->rt]);
+        if (es(in, "sub") && (cpu->banderas & BANDERA_V))
+            return excepcion(cpu, "desbordamiento aritmético en sub");
+        escribir_registro(cpu, in->rd, r);
+        return OK;
+    }
+
+    if (es(in, "addu")) {
+        escribir_registro(cpu, in->rd,
+                          sumar_con_banderas(cpu, cpu->reg[in->rs], cpu->reg[in->rt]));
+        return OK;
+    }
+
+    if (es(in, "addiu")) {
+        escribir_registro(cpu, in->rt,
+                          sumar_con_banderas(cpu, cpu->reg[in->rs], (uint32_t)in->simm));
+        return OK;
+    }
+
+    if (es(in, "lui")) {
+        escribir_registro(cpu, in->rt, in->imm << 16);
+        return OK;
+    }
+
+    if (es(in, "and") || es(in, "or") || es(in, "xor") || es(in, "nor")) {
+        uint32_t a = cpu->reg[in->rs], b = cpu->reg[in->rt];
+        valor = es(in, "and") ? a & b : es(in, "or") ? a | b :
+                es(in, "xor") ? a ^ b : ~(a | b);
+        escribir_registro(cpu, in->rd, banderas_logicas(cpu, valor));
+        return OK;
+    }
+
+    if (es(in, "andi") || es(in, "ori") || es(in, "xori")) {
+        uint32_t a = cpu->reg[in->rs];
+        valor = es(in, "andi") ? a & in->imm : es(in, "ori") ? a | in->imm : a ^ in->imm;
+        escribir_registro(cpu, in->rt, banderas_logicas(cpu, valor));
+        return OK;
+    }
+
+    if (es(in, "sll") || es(in, "srl") || es(in, "sra")) {
+        uint32_t fuente = cpu->reg[in->rt];
+        if (es(in, "sll"))
+            valor = fuente << in->shamt;
+        else if (es(in, "srl"))
+            valor = fuente >> in->shamt;
+        else
+            valor = (uint32_t)((int32_t)fuente >> in->shamt);
+        escribir_registro(cpu, in->rd, banderas_logicas(cpu, valor));
+        return OK;
+    }
+
+    if (es(in, "lw")) {
+        direccion = cpu->reg[in->rs] + (uint32_t)in->simm;
+        if (leer_palabra(cpu, direccion, &valor) != OK)
+            return EXCEPCION;
+        escribir_registro(cpu, in->rt, valor);
+        return OK;
+    }
+
+    if (es(in, "sw")) {
+        direccion = cpu->reg[in->rs] + (uint32_t)in->simm;
+        return escribir_palabra(cpu, direccion, cpu->reg[in->rt]);
+    }
+
+    if (es(in, "lb") || es(in, "lbu")) {
+        direccion = cpu->reg[in->rs] + (uint32_t)in->simm;
+        if (leer_byte(cpu, direccion, &byte) != OK)
+            return EXCEPCION;
+        valor = es(in, "lb") && (byte & 0x80) ? 0xFFFFFF00u | byte : byte;
+        escribir_registro(cpu, in->rt, valor);
+        return OK;
+    }
+
+    if (es(in, "sb")) {
+        direccion = cpu->reg[in->rs] + (uint32_t)in->simm;
+        return escribir_byte(cpu, direccion, (uint8_t)cpu->reg[in->rt]);
+    }
+
+    if (es(in, "beq") || es(in, "bne")) {
+        int iguales = cpu->reg[in->rs] == cpu->reg[in->rt];
+        if (iguales == es(in, "beq"))
+            cpu->pc += (uint32_t)in->simm << 2;
+        return OK;
+    }
+
+    if (es(in, "slt") || es(in, "sltu")) {
+        int menor = es(in, "slt")
+                        ? (int32_t)cpu->reg[in->rs] < (int32_t)cpu->reg[in->rt]
+                        : cpu->reg[in->rs] < cpu->reg[in->rt];
+        escribir_registro(cpu, in->rd, (uint32_t)menor);
+        return OK;
+    }
+
+    if (es(in, "slti")) {
+        escribir_registro(cpu, in->rt,
+                          (uint32_t)((int32_t)cpu->reg[in->rs] < in->simm));
+        return OK;
+    }
+
+    if (es(in, "j") || es(in, "jal")) {
+        if (es(in, "jal"))
+            escribir_registro(cpu, REG_RA, cpu->pc);
+        cpu->pc = (cpu->pc & 0xF0000000u) | (in->direccion << 2);
+        return OK;
+    }
+
+    if (es(in, "jr")) {
+        cpu->pc = cpu->reg[in->rs];
+        return OK;
+    }
 
     return excepcion(cpu, "instrucción '%s' no implementada (ver src/ejecutar.c)",
                      in->def->nombre);

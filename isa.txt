@@ -42,5 +42,41 @@
 # ---------------- Instrucciones del proyecto base ----------------
 add    R  000000  100000  rd,rs,rt     # rd = rs + rt        (excepción si desborda)
 addi   I  001000  -       rt,rs,imm    # rt = rs + imm       (imm con signo; excepción si desborda)
-
+sub    R  000000  100010  rd,rs,rt     # rd = rs - rt        (excepción si desborda)
+subu   R  000000  100011  rd,rs,rt
+addu   R  000000  100001  rd,rs,rt
+addiu  I  001001  -       rt,rs,imm
+lui    I  001111  -       rt,imm
+and    R  000000  100100  rd,rs,rt
+or     R  000000  100101  rd,rs,rt
+xor    R  000000  100110  rd,rs,rt
+nor    R  000000  100111  rd,rs,rt
+andi   I  001100  -       rt,rs,imm
+ori    I  001101  -       rt,rs,imm
+xori   I  001110  -       rt,rs,imm
+sll    R  000000  000000  rd,rt,shamt
+srl    R  000000  000010  rd,rt,shamt
+sra    R  000000  000011  rd,rt,shamt
 # ---------------- Agregue aquí las demás instrucciones ----------------
+lw     I  100011  -       rt,imm(rs)
+sw     I  101011  -       rt,imm(rs)
+lb     I  100000  -       rt,imm(rs)
+lbu    I  100100  -       rt,imm(rs)
+sb     I  101000  -       rt,imm(rs)
+beq    I  000100  -       rs,rt,label
+bne    I  000101  -       rs,rt,label
+slt    R  000000  101010  rd,rs,rt
+sltu   R  000000  101011  rd,rs,rt
+slti   I  001010  -       rt,rs,imm
+j      J  000010  -       label
+jal    J  000011  -       label
+jr     R  000000  001000  rs
+
+# ---------------- Pseudoinstrucciones (mismo código que una real) ----------------
+move   R  000000  100000  rd,rs,rt=$zero        add
+li     I  001000  -       rt,rs=$zero,imm       addi
+la     I  001000  -       rt,rs=$zero,imm       addi
+nop    R  000000  100000  rd=$zero,rs=$zero,rt=$zero add
+clear  R  000000  100000  rd,rs=$zero,rt=$zero  add
+b      I  000100  -       rs=$zero,rt=$zero,label beq
+not    R  000000  100111  rd,rs,rt=$zero        nor
